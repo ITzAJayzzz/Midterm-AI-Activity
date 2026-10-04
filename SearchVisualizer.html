@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Search Visualizer: BFS, DFS, A*</title>
+<style>
+:root{--bg:#eef1fb;--fg:#1a2140;--card:#fff;--cell:#eef2fb;--wall:#4a5578;--visit:#a995ff;--front:#ffcf5c;--path:#12c3a2;--start:#1f9d55;--goal:#e0405f;--accent:#6c4bff;--accent2:#14a8e0;--glow:rgba(108,75,255,.14);--line:#d9def0;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0a0e1a;--fg:#e6edff;--card:#111830;--cell:#182241;--wall:#46557d;--visit:#6c4bff;--front:#ffc857;--path:#19e6c1;--start:#35e07b;--goal:#ff4d7e;--accent:#7c5cff;--accent2:#19d3ff;--glow:rgba(108,75,255,.28);--line:#232f55}}
+:root[data-theme="dark"]{--bg:#0a0e1a;--fg:#e6edff;--card:#111830;--cell:#182241;--wall:#46557d;--visit:#6c4bff;--front:#ffc857;--path:#19e6c1;--start:#35e07b;--goal:#ff4d7e;--accent:#7c5cff;--accent2:#19d3ff;--glow:rgba(108,75,255,.28);--line:#232f55}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:radial-gradient(900px 420px at 15% -5%,var(--glow),transparent 70%),radial-gradient(700px 380px at 95% 0%,var(--glow),transparent 70%),var(--bg);background-attachment:fixed;color:var(--fg);font:15px/1.5 "Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh}
+main{max-width:800px;margin:0 auto;padding:22px 16px}
+h1{font-size:28px;letter-spacing:-.5px;margin:0 0 4px;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+p.sub{margin:0 0 16px;opacity:.7}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+button,select{font:inherit;font-size:14px;padding:8px 16px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer;transition:transform .12s,border-color .12s}
+button:hover:not(:disabled){transform:translateY(-1px);border-color:var(--accent)}
+button.go{background:linear-gradient(90deg,var(--accent),var(--accent2));border:0;color:#fff;font-weight:700;padding:8px 24px;box-shadow:0 4px 18px var(--glow)}
+button:disabled{opacity:.45;cursor:default}
+label{display:flex;gap:8px;align-items:center;font-size:13px;opacity:.85}
+input[type=range]{accent-color:var(--accent)}
+#wrap{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:10px;box-shadow:0 10px 40px var(--glow)}
+canvas{display:block;margin:0 auto;touch-action:none;max-width:100%}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0}
+.stats>div{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;display:flex;flex-direction:column}
+.stats span{font-size:11px;text-transform:uppercase;letter-spacing:1px;opacity:.55}
+.stats b{font-size:20px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;margin-bottom:14px;opacity:.9}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:4px;margin-right:6px;vertical-align:-1px}
+#how{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:14px;padding:12px 16px}
+</style>
+</head>
+<body>
+<main>
+<h1>Search Algorithm</h1>
+<p class="sub"></p>
+<div class="bar">
+  <select id="algo"><option value="bfs">BFS</option><option value="dfs">DFS</option><option value="astar" selected>A* Search</option></select>
+  <button class="go" id="run">Run</button>
+  <button id="clr">Clear search</button>
+  <button id="rnd">Random walls</button>
+  <button id="rst">Reset</button>
+  <label>Speed <input type="range" id="spd" min="1" max="100" value="80"></label>
+</div>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<div class="stats"><div><span>Status</span><b id="sStat">Ready</b></div><div><span>Cells visited</span><b id="sVis">0</b></div><div><span>Path length</span><b id="sPath">-</b></div></div>
+<div class="legend">
+  <div><i style="background:var(--start)"></i>Start (S)</div><div><i style="background:var(--goal)"></i>Goal (G)</div>
+  <div><i style="background:var(--wall)"></i>Wall</div><div><i style="background:var(--front)"></i>Frontier (waiting)</div>
+  <div><i style="background:var(--visit)"></i>Visited</div><div><i style="background:var(--path)"></i>Final path</div>
+</div>
+<div id="how"></div>
+</main>
+<script>
+const R=15,C=25,N=R*C;
+let wall=new Uint8Array(N),st=new Uint8Array(N),par=new Int32Array(N);
+let S=7*C+3,E=7*C+21,running=false,timer=null,drag=null,paint=1,cell=28;
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+const $=id=>document.getElementById(id);
+const INFO={
+ bfs:"<b>BFS</b> uses a <b>queue (FIFO)</b>. It explores in rings: every cell 1 step away, then 2 steps, and so on. It always finds the path with the fewest steps.",
+ dfs:"<b>DFS</b> uses a <b>stack (LIFO)</b>. It dives down one direction until it hits a dead end, then backtracks. It finds a path fast but not necessarily the shortest.",
+ astar:"<b>A*</b> uses a <b>priority queue</b> ordered by <b>f(n) = g(n) + h(n)</b>: g is the steps taken so far, h is the Manhattan distance to the goal. It heads toward G and still finds the shortest path."};
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()}
+function size(){const w=Math.min($('wrap').clientWidth-16,740);cell=Math.floor(w/C);const d=window.devicePixelRatio||1;
+ cv.width=cell*C*d;cv.height=cell*R*d;cv.style.width=cell*C+'px';cv.style.height=cell*R+'px';ctx.setTransform(d,0,0,d,0,0);draw()}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill()}
+function draw(){
+ const col=[null,css('--visit'),css('--front'),css('--path')],g=3,rad=Math.max(3,cell*.24);
+ ctx.clearRect(0,0,cell*C,cell*R);
+ for(let i=0;i<N;i++){const x=(i%C)*cell+g/2,y=(i/C|0)*cell+g/2,k=st[i];
+  ctx.shadowBlur=(!wall[i]&&k>1)?12:0;ctx.shadowColor=col[k]||'transparent';
+  ctx.fillStyle=wall[i]?css('--wall'):(k?col[k]:css('--cell'));rr(x,y,cell-g,cell-g,rad)}
+ for(const [i,c,t] of [[S,'--start','S'],[E,'--goal','G']]){
+  const x=(i%C)*cell+cell/2,y=(i/C|0)*cell+cell/2;
+  ctx.shadowBlur=16;ctx.shadowColor=css(c);ctx.fillStyle=css(c);ctx.beginPath();ctx.arc(x,y,cell*.42,0,7);ctx.fill();ctx.shadowBlur=0;
+  ctx.fillStyle='#fff';ctx.font='800 '+Math.floor(cell*.5)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(t,x,y+1)}}
+function nbrs(i){const r=i/C|0,c=i%C,o=[];
+ if(r>0)o.push(i-C);if(c<C-1)o.push(i+1);if(r<R-1)o.push(i+C);if(c>0)o.push(i-1);
+ return o.filter(n=>!wall[n])}
+const h=i=>Math.abs((i/C|0)-(E/C|0))+Math.abs(i%C-E%C);
+// Each algorithm is a generator: it yields after expanding one cell so we can animate it.
+function* bfs(){const q=[S],seen=new Uint8Array(N);seen[S]=1;
+ while(q.length){const cur=q.shift();st[cur]=1;if(cur===E)return true;
+  for(const n of nbrs(cur))if(!seen[n]){seen[n]=1;par[n]=cur;st[n]=2;q.push(n)}yield}
+ return false}
+function* dfs(){const stack=[S],done=new Uint8Array(N);
+ while(stack.length){const cur=stack.pop();if(done[cur])continue;done[cur]=1;st[cur]=1;if(cur===E)return true;
+  for(const n of nbrs(cur).reverse())if(!done[n]){par[n]=cur;st[n]=2;stack.push(n)}yield}
+ return false}
+function* astar(){const g=new Float64Array(N).fill(Infinity),open=[S],closed=new Uint8Array(N);g[S]=0;
+ while(open.length){let b=0;
+  for(let k=1;k<open.length;k++){const a=open[k],c=open[b],fa=g[a]+h(a),fc=g[c]+h(c);if(fa<fc||(fa===fc&&h(a)<h(c)))b=k}
+  const cur=open.splice(b,1)[0];closed[cur]=1;st[cur]=1;if(cur===E)return true;
+  for(const n of nbrs(cur)){const ng=g[cur]+1;
+   if(ng<g[n]){g[n]=ng;par[n]=cur;if(!closed[n]&&!open.includes(n)){open.push(n);st[n]=2}}}
+  yield}
+ return false}
+const ALG={bfs,dfs,astar};
+function stats(){let v=0;for(let i=0;i<N;i++)if(st[i]===1||st[i]===3)v++;$('sVis').textContent=v}
+function clearSearch(){clearTimeout(timer);running=false;st.fill(0);$('sStat').textContent='Ready';$('sPath').textContent='-';$('sVis').textContent=0;$('run').disabled=false;draw()}
+function run(){if(running)return;clearSearch();running=true;$('run').disabled=true;$('sStat').textContent='Searching...';
+ const gen=ALG[$('algo').value]();
+ (function tick(){const r=gen.next();draw();stats();
+  if(!r.done){timer=setTimeout(tick,Math.max(2,205-$('spd').value*2));return}
+  if(!r.value){running=false;$('run').disabled=false;$('sStat').textContent='No path found';return}
+  const p=[];for(let i=E;i!==S;i=par[i])p.push(i);p.reverse();let k=0;
+  (function step(){if(k<p.length){if(p[k]!==E)st[p[k]]=3;k++;draw();timer=setTimeout(step,30)}
+   else{running=false;$('run').disabled=false;$('sStat').textContent='Goal found!';$('sPath').textContent=p.length+' steps';stats()}})()
+ })()}
+function at(e){const b=cv.getBoundingClientRect(),c=Math.floor((e.clientX-b.left)/cell),r=Math.floor((e.clientY-b.top)/cell);
+ return(c<0||r<0||c>=C||r>=R)?-1:r*C+c}
+cv.addEventListener('pointerdown',e=>{if(running)return;const i=at(e);if(i<0)return;cv.setPointerCapture(e.pointerId);
+ if(st.some(x=>x))clearSearch();
+ if(i===S)drag='S';else if(i===E)drag='E';else{drag='W';paint=wall[i]?0:1;wall[i]=paint}draw()});
+cv.addEventListener('pointermove',e=>{if(!drag)return;const i=at(e);if(i<0)return;
+ if(drag==='S'&&i!==E&&!wall[i])S=i;else if(drag==='E'&&i!==S&&!wall[i])E=i;
+ else if(drag==='W'&&i!==S&&i!==E)wall[i]=paint;draw()});
+cv.addEventListener('pointerup',()=>drag=null);
+$('run').onclick=run;$('clr').onclick=clearSearch;
+$('rnd').onclick=()=>{clearSearch();for(let i=0;i<N;i++)wall[i]=(i!==S&&i!==E&&Math.random()<.28)?1:0;draw()};
+$('rst').onclick=()=>{clearSearch();wall.fill(0);S=7*C+3;E=7*C+21;draw()};
+$('algo').onchange=()=>{$('how').innerHTML=INFO[$('algo').value];clearSearch()};
+// starter wall so the algorithms behave differently right away
+for(let r=3;r<12;r++)wall[r*C+12]=1;wall[7*C+12]=0;
+$('how').innerHTML=INFO.astar;
+addEventListener('resize',size);size();
+</script>
+</body>
+</html>
